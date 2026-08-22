@@ -1,0 +1,56 @@
+name: Self-Healing Scraper
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+    inputs:
+      simulate_break:
+        description: 'Swap in the broken demo page before running (for live demos)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  run-and-heal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Bright Data CLI
+        run: npm install -g @brightdata/cli   # confirm exact package name against current docs
+
+      - name: Authenticate Bright Data CLI
+        run: brightdata login --api-key ${{ secrets.BRIGHTDATA_API_KEY }}
+
+      - name: Simulate a break (optional, for demos)
+        if: ${{ inputs.simulate_break == 'true' }}
+        run: cp demo_pages/broken.html demo_pages/baseline.html
+
+      - name: Serve demo pages
+        run: |
+          cd demo_pages
+          python -m http.server 8000 &
+          sleep 2
+
+      - name: Run self-healing loop
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python heal_loop.py
+
+      - name: Commit updated collector ID
+        if: success()
+        run: |
+          git config user.name "scraper-bot"
+          git config user.email "bot@yourproject.com"
+          git add collector_id.txt last_good_html.txt
+          git commit -m "chore: update collector state after self-heal run" || echo "no changes to commit"
+          git push

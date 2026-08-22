@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+run_output.json
+create.json
+collector_id.txt
+last_good_html.txt
+venv/
