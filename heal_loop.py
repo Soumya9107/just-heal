@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MAX_HEAL_ATTEMPTS = 3
-TARGET_URL = "http://localhost:8000/baseline.html"  # point this at your real target
+TARGET_URL = "TARGET_URL = "https://self-healing-scraper-red.vercel.app/baseline.html"  # point this at your real target
 COLLECTOR_ID_FILE = "collector_id.txt"
 LAST_GOOD_HTML_FILE = "last_good_html.txt"
 
