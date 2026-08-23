@@ -3,22 +3,25 @@ diagnose.py
 
 When the scraper's output fails validation, this module sends the failure
 context (schema, validation report, current page HTML, and optionally the
-last known-good HTML) to Claude and asks for:
+last known-good HTML) to Google's Gemini API and asks for:
   1. A diagnosis of what likely changed on the page
   2. A new plain-English extraction description suitable for handing to
      Bright Data's Scraper Studio (`brightdata scraper create`)
 
-Requires ANTHROPIC_API_KEY to be set in the environment.
+Requires GEMINI_API_KEY to be set in the environment (free tier available
+at https://aistudio.google.com/apikey - no credit card required).
 """
 
 import json
 import os
 import requests
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-5"
+GEMINI_MODEL = "gemini-3.6-flash"
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 
 def diagnose_break(
@@ -27,7 +30,7 @@ def diagnose_break(
     page_html_snippet: str,
     last_good_html_snippet: str = None,
 ) -> dict:
-    """Ask Claude to diagnose a scraper break and propose a fix.
+    """Ask Gemini to diagnose a scraper break and propose a fix.
 
     Returns a dict with keys: diagnosis, confidence, new_extraction_description
     """
@@ -65,35 +68,48 @@ Respond ONLY in JSON, no markdown fences, in this exact shape:
 }}
 """
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY environment variable is not set")
+        raise RuntimeError("GEMINI_API_KEY environment variable is not set")
 
     response = requests.post(
-        ANTHROPIC_API_URL,
-        headers={
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        },
+        f"{GEMINI_API_URL}?key={api_key}",
+        headers={"Content-Type": "application/json"},
         json={
-            "model": MODEL,
-            "max_tokens": 1000,
-            "messages": [{"role": "user", "content": prompt}],
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 4096,
+            },
         },
     )
     if response.status_code != 200:
-        print(f"Anthropic API error {response.status_code}: {response.text}")
-
+        # Print the actual error body before raising, since a bare
+        # HTTPError hides the reason (bad key, quota, bad model name, etc.)
+        print(f"Gemini API error {response.status_code}: {response.text}")
     response.raise_for_status()
+
     data = response.json()
-    text = data["content"][0]["text"]
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+    # Gemini sometimes wraps JSON in markdown fences or adds stray text
+    # before/after it. Extract just the {...} block to be safe.
     clean = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(clean)
+    start = clean.find("{")
+    end = clean.rfind("}")
+    if start != -1 and end != -1:
+        clean = clean[start:end + 1]
+
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse Gemini's response as JSON: {e}")
+        print(f"Raw response text was:\n{text}")
+        raise
 
 
 if __name__ == "__main__":
-    # Manual smoke test - requires ANTHROPIC_API_KEY set
+    # Manual smoke test - requires GEMINI_API_KEY set
     sample_report = {
         "total_records": 1,
         "failed_records": 1,

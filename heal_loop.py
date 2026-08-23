@@ -19,6 +19,7 @@ import json
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 from validator import validate_batch
 from diagnose import diagnose_break
@@ -42,12 +43,31 @@ MAX_HEAL_ATTEMPTS = 3
 TARGET_URL = "https://self-healing-scraper-red.vercel.app/baseline.html"
 COLLECTOR_ID_FILE = "collector_id.txt"
 LAST_GOOD_HTML_FILE = "last_good_html.txt"
+HISTORY_FILE = "history.json"
 
 SCHEMA_DESCRIPTION = {
     "product_name": "str",
     "price": {"value": "number", "currency": "str", "symbol": "str"},
     "availability": "str (one of: In Stock, Out of Stock, Unknown)",
 }
+
+
+def log_history(entry: dict) -> None:
+    """Append a run outcome to history.json so the dashboard can show a timeline."""
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8-sig") as f:
+            history = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        history = []
+
+    entry["timestamp"] = datetime.now(timezone.utc).isoformat()
+    history.append(entry)
+
+    # Keep the file from growing unbounded - retain the most recent 100 runs
+    history = history[-100:]
+
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
 
 
 def run_collector(collector_id: str) -> list:
@@ -125,6 +145,7 @@ def main():
     attempt = 0
     healthy = False
     report = {}
+    diagnosis = None
 
     while attempt < MAX_HEAL_ATTEMPTS and not healthy:
         print(f"--- Attempt {attempt + 1}: running collector {collector_id} ---")
@@ -135,13 +156,27 @@ def main():
             print(f"Healthy run. {report}")
             html_now = fetch_html_snippet(TARGET_URL)
             save_last_good_html(html_now)
+            log_history({
+                "event": "healthy_run",
+                "attempt": attempt + 1,
+                "collector_id": collector_id,
+                "report": report,
+                "latest_record": records[0] if records else None,
+            })
             break
 
         print(f"Validation failed: {report}")
+        log_history({
+            "event": "break_detected",
+            "attempt": attempt + 1,
+            "collector_id": collector_id,
+            "report": report,
+        })
+
         html_snippet = fetch_html_snippet(TARGET_URL)
         last_good = load_last_good_html()
 
-        print("Diagnosing break with Claude...")
+        print("Diagnosing break with Gemini...")
         diagnosis = diagnose_break(
             schema=SCHEMA_DESCRIPTION,
             validation_report=report,
@@ -157,13 +192,32 @@ def main():
         with open(COLLECTOR_ID_FILE, "w") as f:
             f.write(collector_id)
 
+        log_history({
+            "event": "heal_attempted",
+            "attempt": attempt + 1,
+            "new_collector_id": collector_id,
+            "diagnosis": diagnosis["diagnosis"],
+            "confidence": diagnosis["confidence"],
+        })
+
         attempt += 1
 
     if not healthy:
         print(f"Scraper still unhealthy after {MAX_HEAL_ATTEMPTS} heal attempts. Report: {report}")
+        log_history({
+            "event": "heal_failed",
+            "attempts_used": MAX_HEAL_ATTEMPTS,
+            "final_report": report,
+        })
         sys.exit(1)
     else:
         print(f"Scraper healed and verified in {attempt} attempt(s).")
+        if attempt > 0:
+            log_history({
+                "event": "heal_succeeded",
+                "attempts_used": attempt,
+                "final_collector_id": collector_id,
+            })
         sys.exit(0)
 
 

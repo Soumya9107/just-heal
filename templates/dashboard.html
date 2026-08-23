@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scraper Vitals</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --ink: #0B1120;
+            --panel: #131B2E;
+            --panel-raised: #182238;
+            --line: #24314D;
+            --vital: #4ADE80;
+            --vital-dim: #1F4A34;
+            --signal: #FF6B4A;
+            --signal-dim: #4A2A1F;
+            --text: #E4E9F5;
+            --muted: #8792AA;
+            --faint: #4A5578;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--ink);
+            color: var(--text);
+            font-family: 'IBM Plex Sans', sans-serif;
+            min-height: 100vh;
+        }
+
+        .wrap {
+            max-width: 920px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .run-btn {
+            background: var(--panel-raised);
+            border: 1px solid var(--line);
+            color: var(--text);
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 10px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s ease;
+        }
+
+        .run-btn:hover {
+            border-color: var(--faint);
+        }
+
+        .run-btn:disabled {
+            opacity: 0.5;
+            cursor: wait;
+        }
+
+        /* --- Vitals monitor: the signature element --- */
+        .monitor {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 28px 28px 20px;
+            margin-bottom: 28px;
+        }
+
+        .monitor-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 6px 12px;
+            border-radius: 100px;
+        }
+
+        .status-pill.healthy {
+            background: var(--vital-dim);
+            color: var(--vital);
+        }
+
+        .status-pill.broken {
+            background: var(--signal-dim);
+            color: var(--signal);
+        }
+
+        .status-pill.unknown {
+            background: var(--panel-raised);
+            color: var(--muted);
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .status-pill.healthy .dot {
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
+        }
+
+        .last-checked {
+            color: var(--muted);
+            font-size: 12px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        svg#pulseline {
+            display: block;
+            width: 100%;
+            height: 90px;
+        }
+
+        #pulsepath {
+            fill: none;
+            stroke: var(--vital);
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: stroke 0.4s ease;
+        }
+
+        #pulsepath.broken {
+            stroke: var(--signal);
+        }
+
+        @media (prefers-reduced-motion: no-preference) {
+            #pulsepath {
+                stroke-dasharray: 1200;
+                stroke-dashoffset: 1200;
+                animation: draw 2.2s ease-out forwards;
+            }
+        }
+
+        @keyframes draw {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        /* --- Data grid --- */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        @media (max-width: 640px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 20px 22px;
+        }
+
+        .card h2 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 0 0 16px;
+        }
+
+        .field-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--line);
+            font-size: 14px;
+        }
+
+        .field-row:last-child {
+            border-bottom: none;
+        }
+
+        .field-label {
+            color: var(--muted);
+        }
+
+        .field-value {
+            font-family: 'IBM Plex Mono', monospace;
+            text-align: right;
+        }
+
+        .empty-state {
+            color: var(--faint);
+            font-size: 13px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        /* --- History timeline --- */
+        .timeline-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 20px 22px;
+        }
+
+        .timeline-entry {
+            display: flex;
+            gap: 14px;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .timeline-entry:last-child {
+            border-bottom: none;
+        }
+
+        .timeline-marker {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-top: 5px;
+            flex-shrink: 0;
+        }
+
+        .timeline-marker.healthy_run {
+            background: var(--vital);
+        }
+
+        .timeline-marker.break_detected {
+            background: var(--signal);
+        }
+
+        .timeline-marker.heal_attempted {
+            background: #FFC65C;
+        }
+
+        .timeline-marker.heal_succeeded {
+            background: var(--vital);
+        }
+
+        .timeline-marker.heal_failed {
+            background: var(--signal);
+        }
+
+        .timeline-body {
+            flex: 1;
+        }
+
+        .timeline-event {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .timeline-detail {
+            font-size: 12.5px;
+            color: var(--muted);
+            margin-top: 2px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .timeline-time {
+            font-size: 11px;
+            color: var(--faint);
+            font-family: 'IBM Plex Mono', monospace;
+            white-space: nowrap;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+
+        <header>
+            <div>
+                <h1>Scraper Vitals</h1>
+                <div class="subtitle">Live status for the self-healing product-page collector</div>
+            </div>
+            <button class="run-btn" id="runBtn" onclick="triggerRun()">Run check</button>
+        </header>
+
+        <div class="monitor">
+            <div class="monitor-top">
+                <span class="status-pill unknown" id="statusPill"><span class="dot"></span><span
+                        id="statusText">Loading</span></span>
+                <span class="last-checked" id="lastChecked">—</span>
+            </div>
+            <svg id="pulseline" viewBox="0 0 600 90" preserveAspectRatio="none">
+                <path id="pulsepath" d="M0,45 L600,45"></path>
+            </svg>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Latest extraction</h2>
+                <div id="latestData">
+                    <div class="empty-state">No data yet — run a check.</div>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Collector</h2>
+                <div id="collectorInfo">
+                    <div class="empty-state">Not loaded.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="timeline-card">
+            <h2
+                style="font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin:0 0 16px;">
+                History</h2>
+            <div id="timeline">
+                <div class="empty-state">No runs logged yet.</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const EVENT_LABELS = {
+            healthy_run: "Healthy run",
+            break_detected: "Break detected",
+            heal_attempted: "Heal attempted",
+            heal_succeeded: "Scraper healed",
+            heal_failed: "Heal failed",
+        };
+
+        function timeAgo(isoString) {
+            if (!isoString) return "—";
+            const diff = (Date.now() - new Date(isoString).getTime()) / 1000;
+            if (diff < 60) return "just now";
+            if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+            if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+            return Math.floor(diff / 86400) + "d ago";
+        }
+
+        function renderPulse(isHealthy) {
+            const path = document.getElementById('pulsepath');
+            path.classList.toggle('broken', !isHealthy);
+            if (isHealthy) {
+                path.setAttribute('d', 'M0,45 L120,45 L145,45 L160,15 L180,75 L200,45 L230,45 L600,45');
+            } else {
+                path.setAttribute('d', 'M0,45 L120,45 L145,45 L160,15 L180,75 L200,45 L215,20 L225,70 L235,25 L245,60 L260,45 L600,45');
+            }
+        }
+
+        function renderLatestData(record) {
+            const el = document.getElementById('latestData');
+            if (!record) {
+                el.innerHTML = '<div class="empty-state">No data yet — run a check.</div>';
+                return;
+            }
+            const price = record.price && typeof record.price === 'object'
+                ? `${record.price.symbol || ''}${record.price.value}`
+                : (record.price ?? '—');
+            el.innerHTML = `
+    <div class="field-row"><span class="field-label">Product</span><span class="field-value">${record.product_name ?? '—'}</span></div>
+    <div class="field-row"><span class="field-label">Price</span><span class="field-value">${price}</span></div>
+    <div class="field-row"><span class="field-label">Availability</span><span class="field-value">${record.availability ?? '—'}</span></div>
+  `;
+        }
+
+        function renderCollectorInfo(collectorId, latestStatus) {
+            const el = document.getElementById('collectorInfo');
+            if (!collectorId) {
+                el.innerHTML = '<div class="empty-state">No collector configured yet.</div>';
+                return;
+            }
+            const attempts = latestStatus?.attempt ?? latestStatus?.attempts_used ?? '—';
+            el.innerHTML = `
+    <div class="field-row"><span class="field-label">ID</span><span class="field-value">${collectorId}</span></div>
+    <div class="field-row"><span class="field-label">Last attempt #</span><span class="field-value">${attempts}</span></div>
+  `;
+        }
+
+        function renderTimeline(history) {
+            const el = document.getElementById('timeline');
+            if (!history || history.length === 0) {
+                el.innerHTML = '<div class="empty-state">No runs logged yet.</div>';
+                return;
+            }
+            el.innerHTML = history.slice().reverse().map(entry => {
+                const label = EVENT_LABELS[entry.event] || entry.event;
+                let detail = '';
+                if (entry.event === 'break_detected' && entry.report) {
+                    detail = (entry.report.sample_failures || []).flatMap(f => f.problems || []).join(', ') || 'Validation failed';
+                } else if (entry.event === 'heal_attempted') {
+                    detail = entry.diagnosis || '';
+                } else if (entry.event === 'healthy_run' && entry.report) {
+                    detail = `${entry.report.total_records ?? '?'} record(s), 0 failures`;
+                } else if (entry.event === 'heal_succeeded') {
+                    detail = `Healed in ${entry.attempts_used} attempt(s)`;
+                } else if (entry.event === 'heal_failed') {
+                    detail = `Gave up after ${entry.attempts_used} attempt(s)`;
+                }
+                return `
+      <div class="timeline-entry">
+        <div class="timeline-marker ${entry.event}"></div>
+        <div class="timeline-body">
+          <div class="timeline-event">${label}</div>
+          ${detail ? `<div class="timeline-detail">${detail}</div>` : ''}
+        </div>
+        <div class="timeline-time">${timeAgo(entry.timestamp)}</div>
+      </div>
+    `;
+            }).join('');
+        }
+
+        async function loadStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                const pill = document.getElementById('statusPill');
+                const text = document.getElementById('statusText');
+                const isHealthy = data.latest_status?.event === 'healthy_run' || data.latest_status?.event === 'heal_succeeded';
+                const isBroken = data.latest_status?.event === 'break_detected' || data.latest_status?.event === 'heal_failed';
+
+                if (isHealthy) {
+                    pill.className = 'status-pill healthy';
+                    text.textContent = 'Healthy';
+                } else if (isBroken) {
+                    pill.className = 'status-pill broken';
+                    text.textContent = 'Needs attention';
+                } else {
+                    pill.className = 'status-pill unknown';
+                    text.textContent = 'No data';
+                }
+
+                renderPulse(isHealthy || (!isHealthy && !isBroken));
+                document.getElementById('lastChecked').textContent = data.latest_status?.timestamp
+                    ? 'Checked ' + timeAgo(data.latest_status.timestamp)
+                    : '—';
+
+                renderLatestData(data.latest_record);
+                renderCollectorInfo(data.collector_id, data.latest_status);
+                renderTimeline(data.history);
+            } catch (e) {
+                console.error('Failed to load status', e);
+            }
+        }
+
+        async function triggerRun() {
+            const btn = document.getElementById('runBtn');
+            btn.disabled = true;
+            btn.textContent = 'Running…';
+            try {
+                await fetch('/api/run', { method: 'POST' });
+            } catch (e) {
+                console.error('Run failed', e);
+            }
+            await loadStatus();
+            btn.disabled = false;
+            btn.textContent = 'Run check';
+        }
+
+        loadStatus();
+    </script>
+</body>
+
+</html>

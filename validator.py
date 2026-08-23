@@ -6,72 +6,90 @@ records against that schema. This is deliberately stricter than "did we
 get a 200 response" — it checks field presence, type, and plausibility,
 since scrapers usually break silently (returning empty or malformed
 fields) rather than throwing errors.
+
+IMPORTANT: Bright Data's Scraper Studio regenerates the exact field
+NAMES/SHAPE slightly differently each time a collector is (re)created from
+a natural-language description - e.g. one generation might return
+  {"price": {"value": 24.99, "currency": "USD"}}
+and another might return
+  {"price_value": 24.99, "price_currency": "USD"}
+for the same underlying data. This validator checks for the *presence and
+plausibility of the right information*, trying several known field-name
+variants, rather than hard-coding one exact shape - so a re-healed
+collector with a different (but still correct) field layout isn't
+incorrectly flagged as broken.
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-# This matches the ACTUAL output shape Bright Data's AI generated for our
-# collector, e.g.:
-#   {
-#     "product_name": "Wireless Mouse",
-#     "price": {"value": 24.99, "currency": "USD", "symbol": "$"},
-#     "availability": "In Stock"
-#   }
-# Bright Data's schema generator names fields based on its own interpretation
-# of your extraction description, so always check real output (like we did)
-# before assuming field names — don't guess them in advance.
-SCHEMA = {
-    "product_name": {"type": str, "required": True, "min_len": 1},
-    "price": {"type": dict, "required": True},  # nested object, checked specially below
-    "availability": {
-        "type": str,
-        "required": True,
-        "allowed": ["In Stock", "Out of Stock", "Unknown"],
-    },
-}
+# Field name variants Bright Data has been observed to generate for the
+# same logical field. Add to these lists if you see a new variant.
+NAME_FIELDS = ["product_name", "name", "title"]
+PRICE_VALUE_FIELDS = ["price_value", "value"]  # checked inside record AND inside record["price"]
+AVAILABILITY_FIELDS = ["availability", "stock_status", "availability_status"]
+
+ALLOWED_AVAILABILITY = {"in stock", "out of stock", "unknown"}
+
+
+def _first_present(record: Dict[str, Any], field_names: List[str]) -> Optional[Any]:
+    """Return the first non-empty value found among a list of candidate field names."""
+    for name in field_names:
+        if name in record and record[name] not in (None, ""):
+            return record[name]
+    return None
+
+
+def _extract_price_value(record: Dict[str, Any]) -> Optional[Any]:
+    """Price may be a flat field (price_value) or nested (price: {value: ...})."""
+    flat = _first_present(record, PRICE_VALUE_FIELDS)
+    if flat is not None:
+        return flat
+
+    nested = record.get("price")
+    if isinstance(nested, dict):
+        return _first_present(nested, PRICE_VALUE_FIELDS)
+    if isinstance(nested, (int, float)):
+        return nested  # price itself is just a bare number
+
+    return None
 
 
 def validate(record: Dict[str, Any]) -> Tuple[bool, List[str]]:
-    """Validate a single scraped record against SCHEMA.
-
-    Returns (is_valid, list_of_problems).
-    """
+    """Validate a single scraped record. Returns (is_valid, list_of_problems)."""
     problems: List[str] = []
 
-    for field, rules in SCHEMA.items():
-        value = record.get(field)
+    # --- Name ---
+    name = _first_present(record, NAME_FIELDS)
+    if name is None:
+        problems.append(f"no product name field found (checked {NAME_FIELDS})")
+    elif not isinstance(name, str) or len(name) < 1:
+        problems.append(f"product name is empty or wrong type: {name!r}")
 
-        if rules.get("required") and (value is None or value == ""):
-            problems.append(f"'{field}' is missing or empty")
-            continue
+    # --- Price ---
+    price_value = _extract_price_value(record)
+    if price_value is None:
+        problems.append(f"no price value found (checked {PRICE_VALUE_FIELDS} flat and nested under 'price')")
+    elif not isinstance(price_value, (int, float)):
+        problems.append(f"price value has wrong type: expected number, got {type(price_value)} ({price_value!r})")
+    elif price_value < 0:
+        problems.append(f"price value is negative: {price_value}")
 
-        if value is None:
-            continue
-
-        if "type" in rules and not isinstance(value, rules["type"]):
-            problems.append(
-                f"'{field}' has wrong type: expected {rules['type']}, got {type(value)}"
-            )
-
-        if "min_len" in rules and isinstance(value, str) and len(value) < rules["min_len"]:
-            problems.append(f"'{field}' is shorter than expected")
-
-        if "min_val" in rules and isinstance(value, (int, float)) and value < rules["min_val"]:
-            problems.append(f"'{field}' value {value} is below minimum {rules['min_val']}")
-
-        if "allowed" in rules and value not in rules["allowed"]:
-            problems.append(f"'{field}' value '{value}' not in allowed set {rules['allowed']}")
-
-    # Special check: price is a nested object, validate its inner "value"
-    price = record.get("price")
-    if isinstance(price, dict):
-        inner = price.get("value")
-        if inner is None:
-            problems.append("'price.value' is missing")
-        elif not isinstance(inner, (int, float)):
-            problems.append(f"'price.value' has wrong type: expected number, got {type(inner)}")
-        elif inner < 0:
-            problems.append(f"'price.value' is negative: {inner}")
+    # --- Availability ---
+    availability = _first_present(record, AVAILABILITY_FIELDS)
+    if availability is None:
+        problems.append(f"no availability field found (checked {AVAILABILITY_FIELDS})")
+    elif not isinstance(availability, str):
+        problems.append(f"availability has wrong type: {type(availability)}")
+    elif availability.strip().lower() not in ALLOWED_AVAILABILITY:
+        # Not necessarily wrong - the site may phrase it differently
+        # (e.g. "Ships within 24h") - flag it but don't hard-fail on
+        # wording alone, since the field being present and non-empty is
+        # the more important signal that extraction is working.
+        problems.append(
+            f"availability value '{availability}' doesn't match a known status "
+            f"(expected roughly one of {sorted(ALLOWED_AVAILABILITY)}) - may just be "
+            f"different wording, review before treating as a hard failure"
+        )
 
     return (len(problems) == 0, problems)
 
@@ -104,18 +122,26 @@ def validate_batch(records: List[Dict[str, Any]]) -> Tuple[bool, Dict[str, Any]]
 
 
 if __name__ == "__main__":
-    # Quick manual smoke test
-    good = {
+    # Quick manual smoke test covering both field-shape variants we've
+    # actually seen Bright Data generate for this same page.
+    nested_shape = {
         "product_name": "Wireless Mouse",
         "price": {"value": 24.99, "currency": "USD", "symbol": "$"},
         "availability": "In Stock",
     }
-    bad = {
+    flat_shape = {
+        "product_name": "Wireless Mouse",
+        "price_value": 24.99,
+        "price_currency": "USD",
+        "availability": "In Stock",
+    }
+    genuinely_broken = {
         "product_name": "",
         "price": {"value": "twenty"},
         "availability": "maybe",
     }
 
-    print(validate(good))
-    print(validate(bad))
-    print(validate_batch([good, bad]))
+    print("nested shape:", validate(nested_shape))
+    print("flat shape:  ", validate(flat_shape))
+    print("broken:      ", validate(genuinely_broken))
+    print(validate_batch([nested_shape, flat_shape, genuinely_broken]))

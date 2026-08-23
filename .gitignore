@@ -5,4 +5,5 @@ run_output.json
 create.json
 collector_id.txt
 last_good_html.txt
+history.json
 venv/
