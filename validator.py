@@ -10,14 +10,23 @@ fields) rather than throwing errors.
 
 from typing import Any, Dict, List, Tuple
 
-# Edit this to match the fields your collector is expected to extract.
+# This matches the ACTUAL output shape Bright Data's AI generated for our
+# collector, e.g.:
+#   {
+#     "product_name": "Wireless Mouse",
+#     "price": {"value": 24.99, "currency": "USD", "symbol": "$"},
+#     "availability": "In Stock"
+#   }
+# Bright Data's schema generator names fields based on its own interpretation
+# of your extraction description, so always check real output (like we did)
+# before assuming field names — don't guess them in advance.
 SCHEMA = {
-    "name": {"type": str, "required": True, "min_len": 1},
-    "price": {"type": (int, float), "required": True, "min_val": 0},
+    "product_name": {"type": str, "required": True, "min_len": 1},
+    "price": {"type": dict, "required": True},  # nested object, checked specially below
     "availability": {
         "type": str,
         "required": True,
-        "allowed": ["in_stock", "out_of_stock", "unknown"],
+        "allowed": ["In Stock", "Out of Stock", "Unknown"],
     },
 }
 
@@ -53,6 +62,17 @@ def validate(record: Dict[str, Any]) -> Tuple[bool, List[str]]:
         if "allowed" in rules and value not in rules["allowed"]:
             problems.append(f"'{field}' value '{value}' not in allowed set {rules['allowed']}")
 
+    # Special check: price is a nested object, validate its inner "value"
+    price = record.get("price")
+    if isinstance(price, dict):
+        inner = price.get("value")
+        if inner is None:
+            problems.append("'price.value' is missing")
+        elif not isinstance(inner, (int, float)):
+            problems.append(f"'price.value' has wrong type: expected number, got {type(inner)}")
+        elif inner < 0:
+            problems.append(f"'price.value' is negative: {inner}")
+
     return (len(problems) == 0, problems)
 
 
@@ -85,8 +105,16 @@ def validate_batch(records: List[Dict[str, Any]]) -> Tuple[bool, Dict[str, Any]]
 
 if __name__ == "__main__":
     # Quick manual smoke test
-    good = {"name": "Wireless Mouse", "price": 24.99, "availability": "in_stock"}
-    bad = {"name": "", "price": "twenty", "availability": "maybe"}
+    good = {
+        "product_name": "Wireless Mouse",
+        "price": {"value": 24.99, "currency": "USD", "symbol": "$"},
+        "availability": "In Stock",
+    }
+    bad = {
+        "product_name": "",
+        "price": {"value": "twenty"},
+        "availability": "maybe",
+    }
 
     print(validate(good))
     print(validate(bad))

@@ -16,26 +16,44 @@ Requires:
 """
 
 import json
+import shutil
 import subprocess
 import sys
 
 from validator import validate_batch
 from diagnose import diagnose_break
-from dotenv import load_dotenv
-load_dotenv()
+
+# On Windows, npm installs global CLIs as .cmd wrapper scripts, which
+# subprocess.run() won't find unless shell=True or the exact path
+# (with extension) is used. shutil.which() resolves this correctly
+# cross-platform (Windows, Mac, Linux) by finding the actual executable
+# on PATH, extension and all.
+BRIGHTDATA_CMD = shutil.which("brightdata")
+if BRIGHTDATA_CMD is None:
+    print(
+        "Could not find 'brightdata' on PATH. Make sure the Bright Data CLI "
+        "is installed (npm install -g @brightdata/cli) and that you're "
+        "running this from a terminal where 'brightdata --help' works.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 MAX_HEAL_ATTEMPTS = 3
-TARGET_URL = "TARGET_URL = "https://self-healing-scraper-red.vercel.app/baseline.html"  # point this at your real target
+TARGET_URL = "https://self-healing-scraper-red.vercel.app/baseline.html"
 COLLECTOR_ID_FILE = "collector_id.txt"
 LAST_GOOD_HTML_FILE = "last_good_html.txt"
 
-SCHEMA_DESCRIPTION = {"name": "str", "price": "number", "availability": "str"}
+SCHEMA_DESCRIPTION = {
+    "product_name": "str",
+    "price": {"value": "number", "currency": "str", "symbol": "str"},
+    "availability": "str (one of: In Stock, Out of Stock, Unknown)",
+}
 
 
 def run_collector(collector_id: str) -> list:
     """Run an existing collector against TARGET_URL and return parsed records."""
     result = subprocess.run(
-        ["brightdata", "scraper", "run", collector_id, TARGET_URL, "-o", "run_output.json"],
+        [BRIGHTDATA_CMD, "scraper", "run", collector_id, TARGET_URL, "-o", "run_output.json"],
         capture_output=True,
         text=True,
     )
@@ -56,7 +74,7 @@ def run_collector(collector_id: str) -> list:
 def create_collector(description: str) -> str:
     """Create a new (healed) collector with an updated extraction description."""
     result = subprocess.run(
-        ["brightdata", "scraper", "create", TARGET_URL, description, "-o", "create.json"],
+        [BRIGHTDATA_CMD, "scraper", "create", TARGET_URL, description, "-o", "create.json"],
         capture_output=True,
         text=True,
     )
@@ -71,7 +89,7 @@ def create_collector(description: str) -> str:
 def fetch_html_snippet(url: str) -> str:
     """Fetch raw HTML of the target page for diagnosis context."""
     result = subprocess.run(
-        ["brightdata", "scrape", url, "--format", "html"],
+        [BRIGHTDATA_CMD, "scrape", url, "--format", "html"],
         capture_output=True,
         text=True,
     )

@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5"
 
 
 def diagnose_break(
@@ -82,6 +82,9 @@ Respond ONLY in JSON, no markdown fences, in this exact shape:
             "messages": [{"role": "user", "content": prompt}],
         },
     )
+    if response.status_code != 200:
+        print(f"Anthropic API error {response.status_code}: {response.text}")
+
     response.raise_for_status()
     data = response.json()
     text = data["content"][0]["text"]
