@@ -51,6 +51,6 @@ jobs:
         run: |
           git config user.name "scraper-bot"
           git config user.email "bot@yourproject.com"
-          git add collector_id.txt last_good_html.txt
+          git add -f collector_id.txt history.json last_good_html.txt
           git commit -m "chore: update collector state after self-heal run" || echo "no changes to commit"
           git push
