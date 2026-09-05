@@ -298,5 +298,30 @@
       }
     },
     "timestamp": "2026-09-05T14:47:31.515511+00:00"
+  },
+  {
+    "event": "healthy_run",
+    "attempt": 1,
+    "collector_id": "c_mt662ohs2hr5c6gzpg",
+    "report": {
+      "total_records": 1,
+      "failed_records": 0,
+      "fail_rate": 0.0,
+      "sample_failures": []
+    },
+    "latest_record": {
+      "product_name": "Wireless Mouse",
+      "price": {
+        "currency_code": "USD",
+        "symbol": "$",
+        "value": 24.99
+      },
+      "availability": "In Stock",
+      "product_page_url": "https://self-healing-scraper-red.vercel.app/baseline.html",
+      "input": {
+        "url": "https://self-healing-scraper-red.vercel.app/baseline.html"
+      }
+    },
+    "timestamp": "2026-09-05T20:03:51.508085+00:00"
   }
 ]
