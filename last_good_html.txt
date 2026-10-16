@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Demo Product Page - Broken (simulated site change)</title>
+</head>
+<body>
+  <div class="pdp-card-v2">
+    <div class="title-wrap"><span data-testid="name">Wireless Mouse</span></div>
+    <div class="pricing"><b>USD 24.99</b></div>
+    <p class="fulfillment">Ships within 24h</p>
+  </div>
+</body>
+</html>
+
