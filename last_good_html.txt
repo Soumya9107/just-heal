@@ -1,5 +1,6 @@
-<!doctype html>
-<html lang="en"><head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
   <meta charset="UTF-8">
   <title>Demo Product Page - Broken (simulated site change)</title>
 </head>
@@ -9,6 +10,6 @@
     <div class="pricing"><b>USD 24.99</b></div>
     <p class="fulfillment">Ships within 24h</p>
   </div>
+</body>
+</html>
 
-
-</body></html>
